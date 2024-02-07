@@ -1,0 +1,219 @@
+---
+title: "Final_skink_paper"
+author: "Steph"
+date: "2024-02-07"
+output: html_document
+---
+```{r Library Imports, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(data.table)
+library(readr)
+library(reshape2)
+library(vegan)
+library(zoo)
+library(tidyverse)
+library(ggVennDiagram)
+```
+
+```{r set working directory}
+getwd()
+
+setwd("/Users/stephaniewaller/Desktop/Skink")
+```
+
+```{r Normalised viral abundance}
+
+#Make a normalised viral abundance heatmap with sclae bar 
+normalised <- read.csv("rpm_normalised.csv", header=TRUE)
+normalised
+normalised_abundances <- normalised[, 1:12]
+normalised_abundances
+melted_normalised_abundances <- melt(normalised_abundances)
+melted_normalised_abundances
+colnames(melted_normalised_abundances) <- c("library", "family", "value")
+melted_normalised_abundances
+ggplot(melted_normalised_abundances, aes(x=factor (library, level=c('S1', 'S2', 'S8', 'S4', 'S6', 'S5', 'S7', 'S9', 'S12', 'S13', 'S11', 'S3', 'S10', 'S14', 'S15', 'S16')), y= family, fill= value)) + geom_tile() + scale_fill_gradient(low="white", high="blue", trans="log10")
+
+```
+
+
+```{r dual plots- viral abundance (rp100m) by species, logged scale}
+# USING GGPLOT
+#v.abundance <- read.csv("dual_plot_data_viral_abundance.csv")
+#v.abundance
+
+#Use reads per 100 million so that everything is positive when it is logged on a y axis
+v.abundance_100 <- read.csv("dual_plot_RP100M.csv")
+v.abundance_100
+
+library(plyr)
+library(dplyr)
+
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+ return(data_sum)
+}
+
+df2 <- data_summary(v.abundance_100, varname="viral_relative_abundance_reads_per_100million", 
+                    groupnames=c("Species"))
+
+df2
+
+df2 <- df2 %>% arrange(factor(Species, levels = c('Rainbow_skink', 'Copper_skink', 'Moko_skink', 'Ornate_skink', 'Suters_skink', 'Kapitia_skink', 'Northern_spotted_skink', 'Common_gecko', 'Pacific_gecko')))
+
+df3 <- data_summary(v.abundance_100, varname="Paired_reads", 
+                    groupnames=c("Species"))
+
+df3
+
+x = c("Rainbow_skink", "Copper_skink", "Moko_skink", "Ornate_skink", "Suters_skink", "Kapitia_skink", 
+                               "Northern_spotted_skink", "Common_gecko", "Pacific_gecko")
+
+df3 <- df3 %>% arrange(factor(Species, levels = c('Rainbow_skink', 'Copper_skink', 'Moko_skink', 'Ornate_skink', 'Suters_skink', 'Kapitia_skink', 'Northern_spotted_skink', 'Common_gecko', 'Pacific_gecko')))
+
+#merge dataframe 2 and 3 together to form one dataframe (df4)
+
+df4 <- merge(df2, df3, by = "Species", all.y = TRUE)
+df4 <- df4 %>% arrange(factor(Species, levels = c('Rainbow_skink', 'Copper_skink', 'Moko_skink', 'Ornate_skink', 'Suters_skink', 'Kapitia_skink', 'Northern_spotted_skink', 'Common_gecko', 'Pacific_gecko')))
+
+##############################
+p<- ggplot(df2, aes(x=Species, y=viral_relative_abundance_reads_per_100million)) + 
+  geom_bar(stat="identity", color="blue", 
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin=viral_relative_abundance_reads_per_100million, ymax=viral_relative_abundance_reads_per_100million+sd), width=.2, position=position_dodge(.9)) +
+scale_x_discrete(limits = c("Rainbow_skink", "Copper_skink", "Moko_skink", "Ornate_skink", "Suters_skink", "Kapitia_skink", 
+                               "Northern_spotted_skink", "Common_gecko", "Pacific_gecko")) +
+  scale_y_continuous(trans= 'log10')
+############################
+p_dot<- ggplot(df3, aes(x=Species, y = Paired_reads, group=1)) + 
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin=Paired_reads-sd, ymax=Paired_reads+sd), width=.2,position=position_dodge(.9)) +
+scale_x_discrete(limits = c("Rainbow_skink", "Copper_skink", "Moko_skink", "Ornate_skink", "Suters_skink", "Kapitia_skink", 
+                               "Northern_spotted_skink", "Common_gecko", "Pacific_gecko")) +
+  scale_y_continuous(trans= 'log10')
+
+p_dot
+
+# the 'group = 1' is added so it knows which dots need to be connected
+# we want all of them to be connected so 'group them as 1'.
+
+# now to get both in one graph
+# we need to convert one scale on the left to the right
+# the maximum frequency should equal to the maximum cumulative percent
+# the maximum cumulative percent should be 100, so we are left with
+# So the factor would be:
+scaleRight <- max(df4$Paired_reads)/max(df4$viral_relative_abundance_reads_per_100million)
+scaleRight
+
+
+# We adjust our data for the line graph by this scale and set the
+# secondary y-axis to it's multiple
+
+dual <- ggplot(df4, aes(x=Species)) +
+        geom_col(aes(y=viral_relative_abundance_reads_per_100million), fill='blue') +
+        geom_errorbar(aes(ymin=viral_relative_abundance_reads_per_100million, ymax=viral_relative_abundance_reads_per_100million+sd.x), width=.2, position=position_dodge(.9)) +
+        geom_point(aes(y = Paired_reads/scaleRight)) +
+        geom_path(aes(y = Paired_reads/scaleRight), group=1,colour="red", size=0.9) +
+        geom_errorbar(aes(ymin=(Paired_reads-sd.y)/scaleRight, ymax=(Paired_reads+sd.y)/scaleRight), width=.2, position=position_dodge(.9)) +
+        scale_y_continuous(trans = "log10", sec.axis = sec_axis(~.*scaleRight, name = "raw reads")) +
+        labs(title="Dual Axis Chart", x="species", y="Viral abudance (reads per 100 million)") +
+  scale_x_discrete(limits = c("Rainbow_skink", "Copper_skink", "Moko_skink", "Ornate_skink", "Suters_skink", "Kapitia_skink", "Northern_spotted_skink", "Common_gecko", "Pacific_gecko_S3"))
+
+dual
+```
+
+```{r dual plot or richness and reads per library by species}
+# USING GGPLOT
+richness_DF <- read.csv("dual_plot_data_richness.csv")
+richness_DF
+
+df5 <- data_summary(richness_DF, varname="Richness", 
+                    groupnames=c("Species"))
+df5
+
+df5 <- df5 %>% arrange(factor(Species, levels = c('Rainbow_skink', 'Copper_skink', 'Moko_skink', 'Ornate_skink', 'Suters_skink', 'Kapitia_skink', 'Northern_spotted_skink', 'Common_gecko', 'Pacific_gecko')))
+
+df6 <- merge(df5, df3, by = "Species", all.y = TRUE)
+df6 <- df6 %>% arrange(factor(Species, levels = c('Rainbow_skink', 'Copper_skink', 'Moko_skink', 'Ornate_skink', 'Suters_skink', 'Kapitia_skink', 'Northern_spotted_skink', 'Common_gecko', 'Pacific_gecko')))
+##############################
+p_richness<- ggplot(df6, aes(x=Species, y=Richness)) + 
+  geom_bar(stat="identity", color="blue", 
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin=Richness, ymax=Richness+sd.x), width=.2, position=position_dodge(.9)) +
+scale_x_discrete(limits = c("Rainbow_skink", "Copper_skink", "Moko_skink", "Ornate_skink", "Suters_skink", "Kapitia_skink", 
+                               "Northern_spotted_skink", "Common_gecko", "Pacific_gecko"))
+p_richness
+
+############################
+p_dot_richness<- ggplot(df6, aes(x=Species, y = Paired_reads, group=1)) + 
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin=Paired_reads-sd.y, ymax=Paired_reads+sd.y), width=.2,position=position_dodge(.9)) +
+scale_x_discrete(limits = c("Rainbow_skink", "Copper_skink", "Moko_skink", "Ornate_skink", "Suters_skink", "Kapitia_skink", 
+                               "Northern_spotted_skink", "Common_gecko", "Pacific_gecko"))
+
+p_dot_richness
+
+#######################
+  
+  
+# the 'group = 1' is added so it knows which dots need to be connected
+# we want all of them to be connected so 'group them as 1'.
+
+# now to get both in one graph
+# we need to convert one scale on the left to the right
+# the maximum frequency should equal to the maximum cumulative percent
+# the maximum cumulative percent should be 100, so we are left with
+# So the factor would be:
+scaleRight2 <- max(df6$Paired_reads)/max(df6$Richness)
+scaleRight2
+
+# We adjust our data for the line graph by this scale and set the
+# secondary y-axis to it's multiple
+
+dual_richness <- ggplot(df6, aes(x=Species)) +
+        geom_col(aes(y=Richness), fill='blue') +
+        geom_errorbar(aes(ymin=Richness, ymax=Richness+sd.x), width=.2, position=position_dodge(.9)) +
+        geom_point(aes(y = Paired_reads/scaleRight2)) +
+        geom_path(aes(y = Paired_reads/scaleRight2), group=1,colour="red", size=0.9) +
+        geom_errorbar(aes(ymin=(Paired_reads-sd.y)/scaleRight2, ymax=(Paired_reads+sd.y)/scaleRight2), width=.2, position=position_dodge(.9)) +
+        scale_y_continuous(sec.axis = sec_axis(~.*scaleRight2, name = "raw reads")) +
+        labs(title="Dual Axis Chart", x="species", y="Richness") +
+  scale_x_discrete(limits = c("Rainbow_skink", "Copper_skink", "Moko_skink", "Ornate_skink", "Suters_skink", "Kapitia_skink", "Northern_spotted_skink", "Common_gecko", "Pacific_gecko_S3"))
+
+dual_richness
+```
+
+
+```{r network analysis}
+library(ggplot2)
+library(network)
+library(igraph)
+library(sna)
+library(devtools)
+library(ggnet)
+library(ergm)
+library(intergraph)
+library(RColorBrewer)
+library(ggbipart)
+
+data_skink_sp<- read.table("rpm_skink_species.csv", 
+                 header=T, sep=",", row.names=1,
+                 dec=".", na.strings="NA")
+data_skink_sp.net <- bip_init_network(data_skink_sp)
+data_skink_sp.ig<- bip_init_igraph(data_skink_sp)
+
+skink_sp_graph <- bip_ggnet(data_skink_sp.net, as.matrix(data_skink_sp),
+                         #  color= "mode", palette = col, 
+          edge.label = "weights",
+          label= TRUE)
+skink_sp_graph
+```
